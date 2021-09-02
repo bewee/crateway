@@ -5,7 +5,12 @@
 
 use crate::addon_manager::AddonManager;
 use crate::macros::send;
-use crate::{adapter::Adapter, addon_manager::AddonStarted};
+use crate::things_socket::ConnectedMessage;
+use crate::{
+    adapter::Adapter,
+    addon_manager::AddonStarted,
+    things_socket::{ThingsMessage, ThingsMessages, ThingsSocket},
+};
 use anyhow::{anyhow, Error};
 use futures::{stream::SplitSink, SinkExt};
 use log::debug;
@@ -89,7 +94,16 @@ impl Handler<Msg> for AddonInstance {
             }
             Message::DeviceAddedNotification(msg) => {
                 let adapter = self.get_adapter_mut(&msg.data.adapter_id)?;
+                let id = msg.data.device.id.clone();
                 adapter.add_device(msg.data.device);
+
+                send!(ThingsSocket.ThingsMessage(ThingsMessages::ConnectedMessage(
+                    ConnectedMessage {
+                        id,
+                        message_type: String::from("connected"),
+                        data: true
+                    }
+                )))?;
             }
             Message::DevicePropertyChangedNotification(msg) => {
                 let adapter = self.get_adapter_mut(&msg.data.adapter_id)?;
