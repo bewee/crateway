@@ -269,30 +269,20 @@ impl Handler<GetUser> for Db {
     }
 }
 
-#[message(result = "Result<Vec<User>>")]
-pub struct GetUsers;
+#[message(result = "Result<i64>")]
+pub struct GetUserCount;
 
 #[async_trait]
-impl Handler<GetUsers> for Db {
-    async fn handle(&mut self, _ctx: &mut Context<Self>, _msg: GetUsers) -> Result<Vec<User>> {
+impl Handler<GetUserCount> for Db {
+    async fn handle(&mut self, _ctx: &mut Context<Self>, _msg: GetUserCount) -> Result<i64> {
         let mut stmt = self
-            .prepare("SELECT * FROM users")
+            .prepare("SELECT COUNT(*) AS count FROM users")
             .context("Prepare statement")?;
-        let mut rows = stmt.query([]).context("Execute query")?;
-        let mut users = Vec::new();
-        while let Some(row) = rows.next().context("Next row")? {
-            let id: i64 = row.get(0)?;
-            let email: String = row.get(1)?;
-            let password: String = row.get(2)?;
-            let name: String = row.get(3)?;
-            users.push(User {
-                id,
-                email,
-                password,
-                name,
-            });
-        }
-        Ok(users)
+        stmt.query_row(params![], |row| {
+            let count: i64 = row.get(0)?;
+            Ok(count)
+        })
+        .context("Query database")
     }
 }
 
