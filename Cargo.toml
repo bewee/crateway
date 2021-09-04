@@ -32,6 +32,8 @@ fs_extra = "1.2.0"
 flate2 = "1.0.21"
 jsonwebtoken = "7.2.0"
 bcrypt = "0.10.1"
+chrono = "0.4.19"
+openssl = "0.10.36"
 
 [dependencies.rocket]
 version = "0.5.0-rc.1"

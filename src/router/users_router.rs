@@ -1,6 +1,6 @@
 use crate::{
     db::{CreateUser, Db, EditUser, GetUser, GetUserCount, DeleteUser},
-    jwt::JsonWebToken,
+    jwt::{JsonWebToken, self},
     macros::{call, ToRocket},
     model::{Jwt, User},
 };
@@ -82,9 +82,9 @@ async fn post_user(
     } else {
         let hash = bcrypt::hash(password, bcrypt::DEFAULT_COST)
             .to_rocket("Failed to hash password", Status::BadRequest)?;
-        let user = call!(Db.CreateUser(email.to_owned(), hash, name))
+        let user_id = call!(Db.CreateUser(email.to_owned(), hash, name))
             .to_rocket("Failed to create user", Status::BadRequest)?;
-        let jwt = "unimplemented".to_owned();
+        let jwt = jwt::issue_token(user_id);
         Ok(Json(Jwt { jwt }))
     }
 }

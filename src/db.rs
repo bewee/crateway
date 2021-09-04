@@ -179,7 +179,7 @@ where
     }
 }
 
-#[message(result = "Result<User>")]
+#[message(result = "Result<i64>")]
 pub struct CreateUser(pub String, pub String, pub String);
 
 #[async_trait]
@@ -188,18 +188,13 @@ impl Handler<CreateUser> for Db {
         &mut self,
         _ctx: &mut Context<Self>,
         CreateUser(email, password, name): CreateUser,
-    ) -> Result<User> {
+    ) -> Result<i64> {
         self.execute(
             "INSERT INTO users (email, password, name) VALUES (?, ?, ?)",
             params![email, password, name],
         )
         .context("Create user")?;
-        Ok(User {
-            email,
-            name,
-            password,
-            id: self.last_insert_rowid(),
-        })
+        Ok(self.last_insert_rowid())
     }
 }
 

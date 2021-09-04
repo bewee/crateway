@@ -1,7 +1,30 @@
+use anyhow::Error;
+use chrono::NaiveDate;
+use openssl::{
+    ec::{EcGroup, EcKey},
+    nid::Nid,
+    pkey::PKey,
+};
 use rocket::{
     http::Status,
     request::{self, FromRequest, Outcome, Request},
 };
+
+enum Role {
+    USER_TOKEN,
+}
+
+pub struct Payload {
+    role: Role,
+}
+
+pub struct TokenData {
+    user: i64,
+    issued_at: NaiveDate,
+    public_key: String,
+    key_id: String,
+    payload: Payload,
+}
 
 pub struct JsonWebToken(pub String);
 
@@ -53,4 +76,31 @@ impl<'r> FromRequest<'r> for JsonWebToken {
             _ => Outcome::Failure((Status::BadRequest, "Authorization missing")),
         }
     }
+}
+
+pub fn issue_token(user_id: i64) {
+    let (sig, data) = create(
+        user_id,
+        Payload {
+            role: Role::USER_TOKEN,
+        },
+    );
+}
+
+fn create(user_id: i64, payload: Payload) -> Result<(String, TokenData), Error> {
+    let (pub_key, priv_key) = generate_key_pair()?;
+    unimplemented!();
+}
+
+fn generate_key_pair() -> Result<(String, String), Error> {
+    let curve = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
+    let ec = EcKey::generate(&curve)?;
+    let pkey = PKey::from_ec_key(ec)?;
+
+    let pub_key: Vec<u8> = pkey.public_key_to_pem()?;
+    let pub_key = String::from_utf8(pub_key.as_slice().to_vec())?;
+
+    let priv_key: Vec<u8> = pkey.private_key_to_pem_pkcs8()?;
+    let priv_key = String::from_utf8(priv_key.as_slice().to_vec())?;
+    Ok((pub_key, priv_key))
 }
