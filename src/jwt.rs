@@ -3,11 +3,11 @@ use rocket::{
     request::{self, FromRequest, Outcome, Request},
 };
 
-pub struct Jwt(pub String);
+pub struct JsonWebToken(pub String);
 
-fn verify_token(token: &str) -> Option<Jwt> {
+fn verify_token(token: &str) -> Option<JsonWebToken> {
     if token == "asdf" {
-        return Some(Jwt(token.to_string()));
+        return Some(JsonWebToken(token.to_string()));
     }
     None
 }
@@ -43,7 +43,7 @@ fn extract_jwt(request: &Request<'_>) -> Option<String> {
 }
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for Jwt {
+impl<'r> FromRequest<'r> for JsonWebToken {
     type Error = &'static str;
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {

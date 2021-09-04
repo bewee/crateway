@@ -179,22 +179,27 @@ where
     }
 }
 
-#[message(result = "Result<i64>")]
-pub struct CreateUser(pub User);
+#[message(result = "Result<User>")]
+pub struct CreateUser(pub String, pub String, pub String);
 
 #[async_trait]
 impl Handler<CreateUser> for Db {
     async fn handle(
         &mut self,
         _ctx: &mut Context<Self>,
-        CreateUser(user): CreateUser,
-    ) -> Result<i64> {
+        CreateUser(email, password, name): CreateUser,
+    ) -> Result<User> {
         self.execute(
             "INSERT INTO users (email, password, name) VALUES (?, ?, ?)",
-            params![user.email, user.password, user.name],
+            params![email, password, name],
         )
         .context("Create user")?;
-        Ok(self.last_insert_rowid())
+        Ok(User {
+            email,
+            name,
+            password,
+            id: self.last_insert_rowid(),
+        })
     }
 }
 
@@ -214,7 +219,7 @@ impl Handler<EditUser> for Db {
 }
 
 #[message(result = "Result<()>")]
-pub struct DeleteUser(i64);
+pub struct DeleteUser(pub i64);
 
 #[async_trait]
 impl Handler<DeleteUser> for Db {

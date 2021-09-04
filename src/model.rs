@@ -28,3 +28,8 @@ pub struct User {
     pub password: String,
     pub name: String,
 }
+
+#[derive(Serialize, Deserialize, Debug, PartialEq)]
+pub struct Jwt {
+    pub jwt: String,
+}
