@@ -1,5 +1,11 @@
-use anyhow::Error;
-use chrono::NaiveDate;
+use crate::{
+    db::{CreateJwt, Db, GetJwtPublicKeyByKeyId},
+    macros::call,
+};
+use anyhow::{anyhow, Context, Error};
+use chrono::{Duration, Utc};
+use hex;
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, TokenData, Validation};
 use openssl::{
     ec::{EcGroup, EcKey},
     nid::Nid,
@@ -9,30 +15,48 @@ use rocket::{
     http::Status,
     request::{self, FromRequest, Outcome, Request},
 };
+use serde::{Deserialize, Serialize};
+use std::ops::Deref;
+use uuid::Uuid;
 
-enum Role {
-    USER_TOKEN,
+#[derive(Clone, PartialEq, Debug, Deserialize, Serialize)]
+pub enum Role {
+    UserToken,
 }
 
-pub struct Payload {
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Claims {
     role: Role,
-}
-
-pub struct TokenData {
     user: i64,
-    issued_at: NaiveDate,
-    public_key: String,
-    key_id: String,
-    payload: Payload,
+    exp: usize,
 }
 
-pub struct JsonWebToken(pub String);
+pub struct JSONWebToken(pub TokenData<Claims>);
 
-fn verify_token(token: &str) -> Option<JsonWebToken> {
-    if token == "asdf" {
-        return Some(JsonWebToken(token.to_string()));
+impl Deref for JSONWebToken {
+    type Target = TokenData<Claims>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
     }
-    None
+}
+
+impl JSONWebToken {
+    pub fn user_id(&self) -> i64 {
+        self.claims.user
+    }
+}
+
+async fn decode_token(token: &str) -> Result<TokenData<Claims>, Error> {
+    let kid = jsonwebtoken::decode_header(token)?
+        .kid
+        .ok_or_else(|| anyhow!("Failed to obtain kid"))?;
+    let pub_key = call!(Db.GetJwtPublicKeyByKeyId(kid))?;
+    jsonwebtoken::decode::<Claims>(
+        &token,
+        &DecodingKey::from_ec_pem(&hex::decode(pub_key)?)?,
+        &Validation::new(Algorithm::ES256),
+    )
+    .context("Decode jwt")
 }
 
 fn extract_jwt_query(request: &Request<'_>) -> Option<String> {
@@ -66,41 +90,49 @@ fn extract_jwt(request: &Request<'_>) -> Option<String> {
 }
 
 #[rocket::async_trait]
-impl<'r> FromRequest<'r> for JsonWebToken {
+impl<'r> FromRequest<'r> for JSONWebToken {
     type Error = &'static str;
 
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         match extract_jwt(request) {
-            Some(token) if let Some(jwt) = verify_token(&token) => Outcome::Success(jwt),
-            Some(_) => Outcome::Failure((Status::BadRequest, "Authorization invalid")),
-            _ => Outcome::Failure((Status::BadRequest, "Authorization missing")),
+            Some(token) => match decode_token(&token).await {
+                Ok(jwt) => Outcome::Success(JSONWebToken(jwt)),
+                Err(err) => {
+                    error!("Authorization failed: {:?}", err);
+                    Outcome::Failure((Status::Unauthorized, "Authorization invalid"))
+                }
+            },
+            _ => Outcome::Failure((Status::Unauthorized, "Authorization missing")),
         }
     }
 }
 
-pub fn issue_token(user_id: i64) {
-    let (sig, data) = create(
-        user_id,
-        Payload {
-            role: Role::USER_TOKEN,
-        },
-    );
-}
-
-fn create(user_id: i64, payload: Payload) -> Result<(String, TokenData), Error> {
+pub async fn issue_token(user_id: i64) -> Result<String, Error> {
     let (pub_key, priv_key) = generate_key_pair()?;
-    unimplemented!();
+    let claims = Claims {
+        user: user_id,
+        role: Role::UserToken,
+        exp: Utc::now()
+            .checked_add_signed(Duration::days(365))
+            .ok_or_else(|| anyhow!("Failed to calculate expiration date"))?
+            .timestamp() as usize,
+    };
+    let mut header = Header::new(Algorithm::ES256);
+    header.kid = Some(Uuid::new_v4().to_string());
+    let token = jsonwebtoken::encode(&header, &claims, &EncodingKey::from_ec_pem(&priv_key)?)
+        .context("Failed to encode JWT")?;
+    let kid = header.kid.ok_or_else(|| anyhow!("Kid missing"))?;
+    call!(Db.CreateJwt(kid, user_id, hex::encode(pub_key)))?;
+    Ok(token)
 }
 
-fn generate_key_pair() -> Result<(String, String), Error> {
+fn generate_key_pair() -> Result<(Vec<u8>, Vec<u8>), Error> {
     let curve = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
     let ec = EcKey::generate(&curve)?;
     let pkey = PKey::from_ec_key(ec)?;
 
     let pub_key: Vec<u8> = pkey.public_key_to_pem()?;
-    let pub_key = String::from_utf8(pub_key.as_slice().to_vec())?;
-
     let priv_key: Vec<u8> = pkey.private_key_to_pem_pkcs8()?;
-    let priv_key = String::from_utf8(priv_key.as_slice().to_vec())?;
+
     Ok((pub_key, priv_key))
 }

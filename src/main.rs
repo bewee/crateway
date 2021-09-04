@@ -3,7 +3,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#![feature(proc_macro_hygiene, decl_macro, result_flattening, if_let_guard)]
+#![feature(proc_macro_hygiene, decl_macro, result_flattening)]
 
 #[macro_use]
 extern crate rocket;

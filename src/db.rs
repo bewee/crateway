@@ -269,6 +269,33 @@ impl Handler<GetUser> for Db {
     }
 }
 
+#[message(result = "Result<Vec<User>>")]
+pub struct GetUsers;
+
+#[async_trait]
+impl Handler<GetUsers> for Db {
+    async fn handle(&mut self, _ctx: &mut Context<Self>, _msg: GetUsers) -> Result<Vec<User>> {
+        let mut stmt = self
+            .prepare("SELECT * FROM users")
+            .context("Prepare statement")?;
+        let mut rows = stmt.query([]).context("Execute query")?;
+        let mut users = Vec::new();
+        while let Some(row) = rows.next().context("Next row")? {
+            let id: i64 = row.get(0).context("Get parameter")?;
+            let email: String = row.get(1).context("Get parameter")?;
+            let password: String = row.get(2).context("Get parameter")?;
+            let name: String = row.get(3).context("Get parameter")?;
+            users.push(User {
+                id,
+                email,
+                password,
+                name,
+            });
+        }
+        Ok(users)
+    }
+}
+
 #[message(result = "Result<i64>")]
 pub struct GetUserCount;
 
@@ -281,6 +308,46 @@ impl Handler<GetUserCount> for Db {
         stmt.query_row(params![], |row| {
             let count: i64 = row.get(0)?;
             Ok(count)
+        })
+        .context("Query database")
+    }
+}
+
+#[message(result = "Result<()>")]
+pub struct CreateJwt(pub String, pub i64, pub String);
+
+#[async_trait]
+impl Handler<CreateJwt> for Db {
+    async fn handle(
+        &mut self,
+        _ctx: &mut Context<Self>,
+        CreateJwt(key_id, user, public_key): CreateJwt,
+    ) -> Result<()> {
+        self.execute(
+            "INSERT INTO jsonwebtokens (keyId, user, publicKey) VALUES (?, ?, ?)",
+            params![key_id, user, public_key],
+        )
+        .context("Insert into jsonwebtokens")?;
+        Ok(())
+    }
+}
+
+#[message(result = "Result<String>")]
+pub struct GetJwtPublicKeyByKeyId(pub String);
+
+#[async_trait]
+impl Handler<GetJwtPublicKeyByKeyId> for Db {
+    async fn handle(
+        &mut self,
+        _ctx: &mut Context<Self>,
+        GetJwtPublicKeyByKeyId(kid): GetJwtPublicKeyByKeyId,
+    ) -> Result<String> {
+        let mut stmt = self
+            .prepare("SELECT publicKey FROM jsonwebtokens WHERE keyId = ?")
+            .context("Prepare statement")?;
+        stmt.query_row(params![kid], |row| {
+            let public_key: String = row.get(0)?;
+            Ok(public_key)
         })
         .context("Query database")
     }
@@ -319,11 +386,21 @@ fn create_tables(conn: &Connection) {
                   email TEXT UNIQUE,
                   password TEXT,
                   name TEXT
-                  value TEXT
                   )",
         [],
     )
     .expect("Create table users");
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS jsonwebtokens(
+                  id INTEGER PRIMARY KEY ASC,
+                  keyId TEXT UNIQUE,
+                  user INTEGER,
+                  publicKey TEXT
+                  )",
+        [],
+    )
+    .expect("Create table jsonwebtokens");
 }
 
 #[cfg(test)]

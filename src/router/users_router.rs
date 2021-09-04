@@ -1,6 +1,6 @@
 use crate::{
-    db::{CreateUser, Db, EditUser, GetUser, GetUserCount, DeleteUser},
-    jwt::{JsonWebToken, self},
+    db::{CreateUser, Db, DeleteUser, EditUser, GetUser, GetUserCount, GetUsers},
+    jwt::{self, JSONWebToken},
     macros::{call, ToRocket},
     model::{Jwt, User},
 };
@@ -8,7 +8,14 @@ use rocket::{http::Status, response::status, serde::json::Json, Route};
 use serde::{Deserialize, Serialize};
 
 pub fn routes() -> Vec<Route> {
-    routes![get_user_count, get_user_info, get_user, post_user, put_user, delete_user]
+    routes![
+        get_user_count,
+        get_user_info,
+        get_user,
+        post_user,
+        put_user,
+        delete_user
+    ]
 }
 
 #[derive(Serialize, Deserialize)]
@@ -32,12 +39,23 @@ struct UserWithLoggedInState {
 }
 
 #[get("/info")]
-async fn get_user_info() -> Result<Json<Vec<UserWithLoggedInState>>, status::Custom<String>> {
-    unimplemented!();
+async fn get_user_info(
+    jwt: JSONWebToken,
+) -> Result<Json<Vec<UserWithLoggedInState>>, status::Custom<String>> {
+    let users = call!(Db.GetUsers).to_rocket("Failed to get users", Status::BadRequest)?;
+    Ok(Json(
+        users
+            .into_iter()
+            .map(|user| UserWithLoggedInState {
+                logged_in: user.id == jwt.user_id(),
+                user: user,
+            })
+            .collect(),
+    ))
 }
 
 #[get("/<user_id>")]
-async fn get_user(user_id: i64) -> Result<Json<User>, status::Custom<String>> {
+async fn get_user(user_id: i64, _jwt: JSONWebToken) -> Result<Json<User>, status::Custom<String>> {
     let user =
         call!(Db.GetUser::ById(user_id)).to_rocket("Failed to get user", Status::BadRequest)?;
     if let Some(user) = user {
@@ -57,7 +75,7 @@ struct UserForCreate {
 #[post("/", data = "<data>")]
 async fn post_user(
     data: Json<UserForCreate>,
-    jwt: Result<JsonWebToken, &str>,
+    jwt: Result<JSONWebToken, &str>,
 ) -> Result<Json<Jwt>, status::Custom<String>> {
     let count =
         call!(Db.GetUserCount).to_rocket("Failed to obtain user count", Status::BadRequest)?;
@@ -84,7 +102,9 @@ async fn post_user(
             .to_rocket("Failed to hash password", Status::BadRequest)?;
         let user_id = call!(Db.CreateUser(email.to_owned(), hash, name))
             .to_rocket("Failed to create user", Status::BadRequest)?;
-        let jwt = jwt::issue_token(user_id);
+        let jwt = jwt::issue_token(user_id)
+            .await
+            .to_rocket("Failed to issue token", Status::BadRequest)?;
         Ok(Json(Jwt { jwt }))
     }
 }
@@ -102,7 +122,7 @@ struct UserForEdit {
 async fn put_user(
     user_id: i64,
     data: Json<UserForEdit>,
-    _jwt: JsonWebToken,
+    _jwt: JSONWebToken,
 ) -> Result<status::NoContent, status::Custom<String>> {
     let user =
         call!(Db.GetUser::ById(user_id)).to_rocket("Failed to get user", Status::BadRequest)?;
@@ -123,8 +143,7 @@ async fn put_user(
         user.email = data.0.email;
         user.name = data.0.name;
 
-        call!(Db.EditUser(user))
-            .to_rocket("Failed to edit user", Status::BadRequest)?;
+        call!(Db.EditUser(user)).to_rocket("Failed to edit user", Status::BadRequest)?;
 
         Ok(status::NoContent)
     } else {
@@ -138,8 +157,8 @@ async fn put_user(
 #[delete("/<user_id>")]
 async fn delete_user(
     user_id: i64,
-    _jwt: JsonWebToken,
+    _jwt: JSONWebToken,
 ) -> Result<status::NoContent, status::Custom<String>> {
-        call!(Db.DeleteUser(user_id)).to_rocket("Failed to delete user", Status::BadRequest)?;
-        Ok(status::NoContent)
+    call!(Db.DeleteUser(user_id)).to_rocket("Failed to delete user", Status::BadRequest)?;
+    Ok(status::NoContent)
 }
